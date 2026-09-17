@@ -1,9 +1,13 @@
 import 'dart:io';
 
+class EntradaEncerradaException implements Exception {}
+
 String lerTexto(String mensagem, {bool obrigatorio = true}) {
   while (true) {
     stdout.write(mensagem);
-    final valor = stdin.readLineSync()?.trim() ?? '';
+    final linha = stdin.readLineSync();
+    if (linha == null) throw EntradaEncerradaException();
+    final valor = linha.trim();
     if (!obrigatorio || valor.isNotEmpty) return valor;
     print('⚠️  Campo obrigatório.');
   }
@@ -36,9 +40,15 @@ bool lerSimNao(String mensagem) {
   }
 }
 
-DateTime lerDataHora(String mensagem, {DateTime? minimo}) {
+DateTime lerDataHora(String mensagem, {DateTime? minimo, bool padraoAgora = false}) {
   while (true) {
-    final texto = lerTexto('$mensagem (DD/MM/AAAA HH:MM): ');
+    final texto = lerTexto(padraoAgora ? '$mensagem (ENTER = agora; DD/MM/AAAA HH:MM): ' : '$mensagem (DD/MM/AAAA HH:MM): ', obrigatorio: !padraoAgora);
+    if (padraoAgora && texto.isEmpty) {
+      final agora = DateTime.now();
+      if (minimo == null || !agora.isBefore(minimo)) return agora;
+      print('⚠️  O horário atual não pode ser anterior ao horário de entrada.');
+      continue;
+    }
     final partes = texto.split(RegExp(r'[ T]'));
     if (partes.length == 2) {
       final d = partes[0].split('/');

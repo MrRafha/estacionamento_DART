@@ -22,14 +22,17 @@ class App {
     var sair = false;
     while (!sair) {
       try {
-        switch (menu('MENU PRINCIPAL', ['Vagas', 'Clientes', 'Veículos', 'Entrada / Saída', 'Relatórios', 'Sair'])) {
-          case 1: await menuVagas(); break;
-          case 2: await menuClientes(); break;
-          case 3: await menuVeiculos(); break;
-          case 4: await menuMovimentacao(); break;
+        imprimirResumo();
+        switch (menu('MENU PRINCIPAL', ['Operação do dia', 'Vagas', 'Clientes', 'Veículos', 'Relatórios', 'Sair'])) {
+          case 1: await menuOperacao(); break;
+          case 2: await menuVagas(); break;
+          case 3: await menuClientes(); break;
+          case 4: await menuVeiculos(); break;
           case 5: menuRelatorios(); break;
           case 6: sair = true;
         }
+      } on EntradaEncerradaException {
+        sair = true;
       } catch (e) {
         print('❌ $e');
       }
@@ -91,8 +94,8 @@ class App {
     }
   }
 
-  Future<void> menuMovimentacao() async {
-    switch (menu('ENTRADA / SAÍDA', ['Registrar entrada', 'Registrar saída', 'Veículos no estacionamento', 'Voltar'])) {
+  Future<void> menuOperacao() async {
+    switch (menu('OPERAÇÃO DO DIA', ['Registrar entrada', 'Registrar saída', 'Veículos estacionados', 'Vagas disponíveis', 'Voltar'])) {
       case 1:
         await registrarEntrada();
         break;
@@ -102,8 +105,23 @@ class App {
       case 3:
         listarVeiculosNoEstacionamento();
         break;
+      case 4:
+        listarVagasDisponiveis();
+        break;
     }
   }
+
+  void imprimirResumo() {
+    final ocupadas = service.vagas.where((vaga) => vaga.status == StatusVaga.ocupada).length;
+    final livres = service.vagas.where((vaga) => vaga.status == StatusVaga.livre).length;
+    final faturamentoHoje = service.permanencias
+        .where((permanencia) => permanencia.saida != null && _mesmoDia(permanencia.saida!, DateTime.now()))
+        .fold<double>(0, (total, permanencia) => total + permanencia.valor);
+
+    print('\nResumo: $livres vagas livres | $ocupadas ocupadas | ${service.permanencias.where((p) => p.aberta).length} veículo(s) no local | Faturamento hoje: R\$ ${faturamentoHoje.toStringAsFixed(2)}');
+  }
+
+  bool _mesmoDia(DateTime primeiro, DateTime segundo) => primeiro.year == segundo.year && primeiro.month == segundo.month && primeiro.day == segundo.day;
 
   void menuRelatorios() {
     switch (menu('RELATÓRIOS', ['Faturamento por período', 'Movimentações por período', 'Ocupação atual', 'Voltar'])) {
@@ -176,6 +194,19 @@ class App {
     }
   }
 
+  void listarVagasDisponiveis() {
+    final disponiveis = service.vagas.where((vaga) => vaga.status == StatusVaga.livre).toList();
+    if (disponiveis.isEmpty) {
+      print('Nenhuma vaga disponível no momento.');
+      return;
+    }
+
+    print('\nVagas disponíveis:');
+    for (final vaga in disponiveis) {
+      print('${vaga.id} | ${labelTipoVaga(vaga.tipo)} | ${labelDestinacao(vaga.destinacao)}');
+    }
+  }
+
   // ---------- CLIENTES ----------
 
   Future<void> cadastrarCliente() async {
@@ -226,8 +257,8 @@ class App {
 
   // ---------- VEÍCULOS ----------
 
-  Future<void> cadastrarVeiculo() async {
-    final placa = lerTexto('Placa: ');
+  Future<void> cadastrarVeiculo({String? placaInicial}) async {
+    final placa = placaInicial ?? lerTexto('Placa: ');
     final modelo = lerTexto('Modelo: ');
     final marca = lerTexto('Marca: ');
     final tipo = escolherTipoVeiculo();
@@ -274,9 +305,17 @@ class App {
 
   Future<void> registrarEntrada() async {
     final placa = EstacionamentoService.normalizarPlaca(lerTexto('Placa: '));
-    final veiculo = service.veiculo(placa);
+    Veiculo veiculo;
+    try {
+      veiculo = service.veiculo(placa);
+    } catch (_) {
+      print('Veículo não cadastrado.');
+      if (!lerSimNao('Deseja cadastrar este veículo agora?')) return;
+      await cadastrarVeiculo(placaInicial: placa);
+      veiculo = service.veiculo(placa);
+    }
     final ehMensalista = veiculo.clienteId != null;
-    final entrada = lerDataHora('Data/hora de entrada');
+    final entrada = lerDataHora('Data/hora de entrada', padraoAgora: true);
 
     // A busca já considera tipo de veículo e disponibilidade real da vaga.
     final vaga = service.encontrarVagaLivre(veiculo.tipo);
@@ -299,16 +338,17 @@ class App {
   }
 
   Future<void> registrarSaida() async {
-    final id = lerTexto('ID da permanência: ');
+    final placa = EstacionamentoService.normalizarPlaca(lerTexto('Placa do veículo: '));
     final permanencia = service.permanencias.firstWhere(
-      (x) => x.id == id,
-      orElse: () => throw Exception('Permanência não encontrada.'),
+      (x) => x.placa == placa && x.aberta,
+      orElse: () => throw Exception('Não há permanência aberta para essa placa.'),
     );
 
-    final saida = lerDataHora('Data/hora de saida', minimo: permanencia.entrada);
+    print('Entrada registrada em ${formatarData(permanencia.entrada)} na vaga ${permanencia.vagaId}.');
+    final saida = lerDataHora('Data/hora de saída', minimo: permanencia.entrada, padraoAgora: true);
     final ticketPerdido = permanencia.perfil == enumName(PerfilCliente.avulso) ? lerSimNao('Ticket perdido?') : false;
 
-    final valor = service.finalizarSaida(id, saida, ticketPerdido: ticketPerdido);
+    final valor = service.finalizarSaida(permanencia.id, saida, ticketPerdido: ticketPerdido);
     await service.salvar();
     print(' Saída registrada. Valor: R\$ ${valor.toStringAsFixed(2)}');
   }
