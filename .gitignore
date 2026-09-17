@@ -1,0 +1,20 @@
+# Arquivos gerados pelo Dart
+.dart_tool/
+.packages
+.pub/
+
+# Builds e cobertura de testes
+build/
+coverage/
+
+# Configuracoes locais do editor
+.vscode/
+.idea/
+*.iml
+
+# Arquivos do sistema operacional
+.DS_Store
+Thumbs.db
+
+# Dados gerados localmente pelo programa
+data/*.txt
